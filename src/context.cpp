@@ -89,6 +89,8 @@ bool Context::Init() {
     glBindTexture(GL_TEXTURE_2D, m_texture2->Get());
     
     m_program->Use();
+    m_program -> SetUniform("tex" , 0);
+    m_program -> SetUniform("tex2", 1);
     glUniform1i(glGetUniformLocation(m_program->Get(), "tex"), 0);
     glUniform1i(glGetUniformLocation(m_program->Get(), "tex2"), 1);
 
@@ -97,9 +99,8 @@ bool Context::Init() {
     auto projection = glm::perspective(glm::radians(45.0f), (float)WINDOW_WIDTH / (float)WINDOW_HEIGHT, 0.01f, 10.0f);
     auto transform = projection * view * model;
 
-    auto transformLoc = glGetUniformLocation(m_program->Get(), "transform");
-    glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
-    
+    m_program -> SetUniform("transform", transform);
+
     return true;
 }
 
@@ -108,5 +109,6 @@ void Context::Render(){
     glEnable(GL_DEPTH_TEST);
 
     m_program->Use();
+
     glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
 }
