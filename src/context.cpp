@@ -1,5 +1,6 @@
 #include "context.h"
 #include "image.h"
+#include <imgui.h>
 
 ContextUPtr Context::Create() {
     auto context = ContextUPtr(new Context());
@@ -68,6 +69,11 @@ void Context::MouseButton(int button, int action, double x, double y) {
 }
 
 void Context::Render() {
+    if (ImGui::Begin("ui window")) {
+        ImGui::Text("this is first text ...");
+    }
+    ImGui::End();
+
     std::vector<glm::vec3> cubePositions = {
         glm::vec3( 0.0f, 0.0f, 0.0f),
         glm::vec3( 2.0f, 5.0f, -15.0f),
