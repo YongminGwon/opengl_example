@@ -20,5 +20,6 @@ using klassName ## WPtr = std::weak_ptr<klassName>;
 
 // optional은 값이 들어있으면 쓸 수 있고 없으면 안쓰는것
 std::optional<std::string> LoadTextFile(const std::string& filename);
+glm::vec3 GetAttenuationCoeff(float distance);
 
 #endif //__COMMON_H__
