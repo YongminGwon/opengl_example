@@ -37,7 +37,13 @@ void Context::Reshape(int width, int height) {
     glViewport(0, 0, m_width, m_height);
 
     m_framebuffer = Framebuffer::Create(
-        Texture::Create(width, height, GL_RGBA));
+        {Texture::Create(width, height, GL_RGBA)});
+    
+    m_deferGeoFramebuffer = Framebuffer::Create({
+        Texture::Create(width, height, GL_RGBA16F, GL_FLOAT),
+        Texture::Create(width, height, GL_RGBA16F, GL_FLOAT),
+        Texture::Create(width, height, GL_RGBA, GL_UNSIGNED_BYTE),
+    });
 }
 
 void Context::MouseMove(double x, double y) {
@@ -109,27 +115,20 @@ void Context::Render() {
     }
     ImGui::End();
 
-    auto lightView = glm::lookAt(m_light.position,
-        m_light.position + m_light.direction,
-        glm::vec3(0.0f, 1.0f, 0.0f));
-    auto lightProjection = m_light.directional ? glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 1.0f, 30.0f) :
-    glm::perspective(glm::radians((m_light.cutoff[0] + m_light.cutoff[1]) * 2.0f), 1.0f, 1.0f, 20.0f);
-
-    m_shadowMap->Bind();
-    glClear(GL_DEPTH_BUFFER_BIT);
-    glViewport(0, 0,
-        m_shadowMap->GetShadowMap()->GetWidth(),
-        m_shadowMap->GetShadowMap()->GetHeight());
-    m_simpleProgram->Use();
-    m_simpleProgram->SetUniform("color", glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
-    DrawScene(lightView, lightProjection, m_simpleProgram.get());
-
-    Framebuffer::BindToDefault();
-    glViewport(0, 0, m_width, m_height);
-
-    // m_framebuffer->Bind();
-
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    if (ImGui::Begin("G-Buffers")) {
+        const char* bufferNames[] = {
+        "position", "normal", "albedo/specular",
+        };
+        static int bufferSelect = 0;
+        ImGui::Combo("buffer", &bufferSelect, bufferNames, 3);
+        float width = ImGui::GetContentRegionAvail().x;
+        float height = width * ((float)m_height / (float)m_width);
+        auto selectedAttachment =
+        m_deferGeoFramebuffer->GetColorAttachment(bufferSelect);
+        ImGui::Image((ImTextureID)selectedAttachment->Get(),
+        ImVec2(width, height), ImVec2(0, 1), ImVec2(1, 0));
+    }
+    ImGui::End();
 
     m_cameraFront =
         glm::rotate(glm::mat4(1.0f),
@@ -145,6 +144,54 @@ void Context::Render() {
         m_cameraPos + m_cameraFront,
         m_cameraUp);
 
+    auto lightView = glm::lookAt(m_light.position,
+        m_light.position + m_light.direction,
+        glm::vec3(0.0f, 1.0f, 0.0f));
+    auto lightProjection = m_light.directional ? glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 1.0f, 30.0f) :
+    glm::perspective(glm::radians((m_light.cutoff[0] + m_light.cutoff[1]) * 2.0f), 1.0f, 1.0f, 20.0f);
+
+    m_shadowMap->Bind();
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glViewport(0, 0,
+        m_shadowMap->GetShadowMap()->GetWidth(),
+        m_shadowMap->GetShadowMap()->GetHeight());
+    m_simpleProgram->Use();
+    m_simpleProgram->SetUniform("color", glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
+    DrawScene(lightView, lightProjection, m_simpleProgram.get());
+
+    m_deferGeoFramebuffer->Bind();
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glViewport(0, 0, m_width, m_height);
+    m_deferGeoProgram->Use();
+    DrawScene(view, projection, m_deferGeoProgram.get());
+
+    Framebuffer::BindToDefault();
+    glViewport(0, 0, m_width, m_height);
+    glClearColor(m_clearColor.r, m_clearColor.g, m_clearColor.b, m_clearColor.a);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+  
+    m_deferLightProgram->Use();
+    glActiveTexture(GL_TEXTURE0);
+    m_deferGeoFramebuffer->GetColorAttachment(0)->Bind();
+    glActiveTexture(GL_TEXTURE1);
+    m_deferGeoFramebuffer->GetColorAttachment(1)->Bind();
+    glActiveTexture(GL_TEXTURE2);
+    m_deferGeoFramebuffer->GetColorAttachment(2)->Bind();
+    glActiveTexture(GL_TEXTURE0);
+    m_deferLightProgram->SetUniform("gPosition", 0);
+    m_deferLightProgram->SetUniform("gNormal", 1);
+    m_deferLightProgram->SetUniform("gAlbedoSpec", 2);
+    for (size_t i = 0; i < m_deferLights.size(); i++) {
+        auto posName = fmt::format("lights[{}].position", i);
+        auto colorName = fmt::format("lights[{}].color", i);
+        m_deferLightProgram->SetUniform(posName, m_deferLights[i].position);
+        m_deferLightProgram->SetUniform(colorName, m_deferLights[i].color);
+    }
+    m_deferLightProgram->SetUniform("transform",
+        glm::scale(glm::mat4(1.0f), glm::vec3(2.0f)));
+    m_plane->Draw(m_deferLightProgram.get());
+/* 
     auto skyboxModelTransform =
         glm::translate(glm::mat4(1.0), m_cameraPos) *
         glm::scale(glm::mat4(1.0), glm::vec3(50.0f));
@@ -197,7 +244,7 @@ void Context::Render() {
     glActiveTexture(GL_TEXTURE0);
     m_normalProgram->SetUniform("modelTransform", modelTransform);
     m_normalProgram->SetUniform("transform", projection * view * modelTransform);
-    m_plane->Draw(m_normalProgram.get());
+    m_plane->Draw(m_normalProgram.get()); */
     // Framebuffer::BindToDefault();
 
     // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -349,7 +396,23 @@ bool Context::Init() {
         Image::Load("./image/brickwall_normal.jpg", false).get());
     m_normalProgram = Program::Create(
         "./shader/normal.vs", "./shader/normal.fs");
-    
+
+    m_deferGeoProgram = Program::Create(
+    "./shader/defer_geo.vs", "./shader/defer_geo.fs");
+     m_deferLightProgram = Program::Create(
+    "./shader/defer_light.vs", "./shader/defer_light.fs");
+    m_deferLights.resize(32);
+    for (size_t i = 0; i < m_deferLights.size(); i++) {
+        m_deferLights[i].position = glm::vec3(
+        RandomRange(-10.0f, 10.0f),
+        RandomRange(1.0f, 4.0f),
+        RandomRange(-10.0f, 10.0f));
+        m_deferLights[i].color = glm::vec3(
+        RandomRange(0.05f, 0.3f),
+        RandomRange(0.05f, 0.3f),
+        RandomRange(0.05f, 0.3f));
+    }
+        
     return true;
 }
 void Context::DrawScene(const glm::mat4& view,

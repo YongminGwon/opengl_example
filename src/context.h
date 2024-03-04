@@ -56,6 +56,14 @@ private:
     MaterialPtr m_box1Material;
     MaterialPtr m_box2Material;
     TexturePtr m_windowTexture;
+
+    ProgramUPtr m_deferLightProgram;
+
+    struct DeferLight {
+        glm::vec3 position;
+        glm::vec3 color;
+    };
+    std::vector<DeferLight> m_deferLights;
     
     bool m_animation {true};
 
@@ -93,6 +101,9 @@ private:
 
     int m_width {WINDOW_WIDTH};
     int m_height {WINDOW_HEIGHT};
+
+    FramebufferUPtr m_deferGeoFramebuffer;
+    ProgramUPtr m_deferGeoProgram;
 };
 
 #endif
